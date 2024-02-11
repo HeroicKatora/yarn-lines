@@ -2,7 +2,7 @@
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-#[serde(tag = "kind")]
+#[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Definition {
     Circles {
         circles: Vec<Circle>,
@@ -17,6 +17,12 @@ pub struct Circle {
     pub points_on_circle: u32,
     /// The number of windows to place within that circle.
     pub windows: u32,
+    /// How much to split each segment along the circle.
+    #[serde(default)]
+    pub split_per_segment: u32,
+    /// How much to split each segment along the circle.
+    #[serde(default)]
+    pub split_per_segment_inner: u32,
     /// The number of separators between this and the last circle.
     pub window_split: u32,
     /// Point offset at which the windows begins.
@@ -32,7 +38,7 @@ pub struct Polygons {
 
 #[derive(Debug)]
 pub struct Polygon {
-    points: Vec<(f32, f32)>,
+    pub points: Vec<(f32, f32)>,
 }
 
 pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
@@ -43,6 +49,8 @@ pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
         radius: 0.0,
         points_on_circle: 1,
         windows: 0,
+        split_per_segment: 0,
+        split_per_segment_inner: 0,
         window_split: 0,
         offset: 0,
         offset_inner: 0,
@@ -89,9 +97,18 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
     for idx in 0..post.windows {
         let mut points = vec![];
 
-        for o in (post.offset + idx * step_post)..=(post.offset + (idx+1) * step_post) {
-            points.push(point_by_idx(o, c_post, post.radius));
+        for o in (post.offset + idx * step_post)..(post.offset + (idx+1) * step_post) {
+            let a = point_by_idx(o, c_post, post.radius);
+            points.push(a);
+
+            for mid in 1..post.split_per_segment {
+                let b = point_by_idx(o + 1, c_post, post.radius);
+                let f = mid as f32 / post.split_per_segment as f32;
+                points.push(lerp(a, b, f));
+            }
         }
+
+        points.push(point_by_idx(post.offset + (idx+1) * step_post, c_post, post.radius));
 
         {
             let a = post.offset + (idx+1) * step_post;
@@ -106,9 +123,18 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
             }
         }
 
-        for o in ((post.offset_inner + idx * step_pre)..=(post.offset_inner + (idx+1) * step_pre)).rev() {
-            points.push(point_by_idx(o, c_pre, pre.radius));
+        for o in ((1 + post.offset_inner + idx * step_pre)..=(post.offset_inner + (idx+1) * step_pre)).rev() {
+            let a = point_by_idx(o, c_pre, pre.radius);
+            points.push(a);
+
+            for mid in 1..post.split_per_segment_inner {
+                let b = point_by_idx(o - 1, c_pre, pre.radius);
+                let f = mid as f32 / post.split_per_segment_inner as f32;
+                points.push(lerp(a, b, f));
+            }
         }
+
+        points.push(point_by_idx(post.offset_inner + idx * step_pre, c_pre, pre.radius));
 
         {
             let a = post.offset_inner + idx * step_pre;
