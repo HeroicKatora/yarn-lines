@@ -4,12 +4,25 @@ use image::{GenericImage, GenericImageView, GrayImage};
 use imageproc::{rect::Rect, point::Point};
 
 use crate::poly::Polygon;
+use crate::{eo_transfer, oe_transfer};
 
 #[derive(Default)]
 pub struct Lines {
     pub idx_vec: Vec<PolygonPoint>,
     pub ranges: Vec<Range<usize>>,
+}
+
+#[derive(Default, Clone)]
+pub struct Sequence {
     pub sequence: Vec<PolygonPoint>,
+}
+
+#[derive(Default, Clone)]
+pub struct RgbSequence {
+    pub r: Sequence,
+    pub g: Sequence,
+    pub b: Sequence,
+    pub black: Sequence,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,8 +31,8 @@ pub struct PolygonPoint(pub usize);
 pub fn plan(
     image: &GrayImage,
     poly: &Polygon,
-    lines: &mut Lines,
-) -> Result<(), eyre::Report> {
+    lines: &Lines,
+) -> Result<Sequence, eyre::Report> {
     let (w, h) = image.dimensions();
 
     let mut draw_points: Vec<_> = poly.points
@@ -88,7 +101,9 @@ pub fn plan(
     );
 
     let mut current = PolygonPoint(0);
-    lines.sequence.push(current);
+
+    let mut sequence = Vec::new();
+    sequence.push(current);
 
     for _ in 0..128 {
         let r = &lines.ranges[current.0];
@@ -108,7 +123,7 @@ pub fn plan(
         let target = lines.idx_vec[r.start..r.end][best_fit];
         darken_by_thread(&mut done, &draw_points, current, target);
 
-        lines.sequence.push(target);
+        sequence.push(target);
         current = target;
     }
 
@@ -119,7 +134,20 @@ pub fn plan(
     done.save(format!("target/{i}.png"))?;
     target.save(format!("target/{i}-target.png"))?;
 
-    Ok(())
+    Ok(Sequence {
+        sequence,
+    })
+}
+
+impl RgbSequence {
+    pub fn channel(&mut self, idx: usize) -> &mut Sequence {
+        match idx {
+            0 => &mut self.r,
+            1 => &mut self.g,
+            2 => &mut self.b,
+            _ => unreachable!("Not called with this"),
+        }
+    }
 }
 
 fn image_background(
@@ -137,7 +165,7 @@ fn image_background(
 
             count += 1;
             let &image::Luma([t]) = target.get_pixel(x, y);
-            abs_light += (t as f32 / 255.).powf(2.2);
+            abs_light += eo_transfer(t);
         }
     }
 
@@ -145,7 +173,9 @@ fn image_background(
         0xff
     } else {
         let med = abs_light / (count as f32);
-        (med.powf(1./2.2) * 255.) as u8
+        // Lighten the whole thing, we only paint with pigment.
+        let med = (med + 0.5) / 1.5;
+        oe_transfer(med)
     }])
 }
 
@@ -234,8 +264,8 @@ fn score_img_to_target(
                     let &image::Luma([t]) = target.get_pixel(x, y);
                     let &image::Luma([actual]) = actual.get_pixel(x, y);
 
-                    abs_light += (t as f32 / 255.).powf(2.2);
-                    perc_light += (actual as f32 / 255.).powf(2.2);
+                    abs_light += eo_transfer(t);
+                    perc_light += eo_transfer(actual);
                 }
             }
 

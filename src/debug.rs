@@ -2,7 +2,7 @@
 use std::io::Write;
 
 use crate::poly::Polygons;
-use crate::plan::{Lines, PolygonPoint};
+use crate::plan::{Lines, PolygonPoint, RgbSequence};
 
 pub fn dump_plan(
     mut into: impl Write,
@@ -46,10 +46,12 @@ pub fn dump_output(
     mut into: impl Write,
     plan: &Polygons,
     lines: &[Lines],
+    sequences: &[RgbSequence],
+    is_rgbish: bool,
 ) -> Result<(), eyre::Report> {
     write!(into, r#"<svg viewBox="-100 -100 200 200" xmlns="http://www.w3.org/2000/svg">"#)?;
 
-    for (window, lines) in plan.windows.iter().zip(lines) {
+    for ((window, _lines), rgb) in plan.windows.iter().zip(lines).zip(sequences) {
         write!(into, r#"<polygon points=""#)?;
 
         for (x, y) in &window.points {
@@ -61,7 +63,40 @@ pub fn dump_output(
 
         write!(into, r#"" fill="none" stroke="green" />"#)?;
 
-        for w in lines.sequence.windows(2) {
+        for w in rgb.black.sequence.windows(2) {
+            let &[origin, target] = w.try_into().unwrap();
+
+            let (x1, y1) = window.points[origin.0];
+            let (x2, y2) = window.points[target.0];
+
+            let x1 = x1 * 100.;
+            let x2 = x2 * 100.;
+            let y1 = y1 * 100.;
+            let y2 = y2 * 100.;
+
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-opacity="40%" />"#)?;
+        }
+
+        if !is_rgbish {
+
+            continue;
+        }
+
+        for w in rgb.b.sequence.windows(2) {
+            let &[origin, target] = w.try_into().unwrap();
+
+            let (x1, y1) = window.points[origin.0];
+            let (x2, y2) = window.points[target.0];
+
+            let x1 = x1 * 100.;
+            let x2 = x2 * 100.;
+            let y1 = y1 * 100.;
+            let y2 = y2 * 100.;
+
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="blue" stroke-opacity="40%" />"#)?;
+        }
+
+        for w in rgb.g.sequence.windows(2) {
             let &[origin, target] = w.try_into().unwrap();
 
             let (x1, y1) = window.points[origin.0];
@@ -73,6 +108,20 @@ pub fn dump_output(
             let y2 = y2 * 100.;
 
             write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="green" stroke-opacity="40%" />"#)?;
+        }
+
+        for w in rgb.r.sequence.windows(2) {
+            let &[origin, target] = w.try_into().unwrap();
+
+            let (x1, y1) = window.points[origin.0];
+            let (x2, y2) = window.points[target.0];
+
+            let x1 = x1 * 100.;
+            let x2 = x2 * 100.;
+            let y1 = y1 * 100.;
+            let y2 = y2 * 100.;
+
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="red" stroke-opacity="40%" />"#)?;
         }
     }
 

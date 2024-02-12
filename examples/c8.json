@@ -1,0 +1,98 @@
+{
+  "kind": "circles",
+  "circles": [
+    {
+      "radius": 0.05,
+      "points_on_circle": 12,
+      "windows": 6,
+      "split_per_segment": 2,
+      "split_per_segment_inner": 2,
+      "window_split": 3,
+      "offset": 0,
+      "offset_inner": 0
+    },
+    {
+      "radius": 0.10,
+      "points_on_circle": 12,
+      "windows": 6,
+      "split_per_segment": 2,
+      "split_per_segment_inner": 2,
+      "window_split": 3,
+      "offset": 1,
+      "offset_inner": 0
+    },
+    {
+      "radius": 0.14,
+      "points_on_circle": 12,
+      "windows": 6,
+      "split_per_segment": 2,
+      "split_per_segment_inner": 2,
+      "window_split": 3,
+      "offset": 0,
+      "offset_inner": 0
+    },
+    {
+      "radius": 0.25,
+      "points_on_circle": 18,
+      "windows": 6,
+      "split_per_segment": 3,
+      "split_per_segment_inner": 3,
+      "window_split": 3,
+      "offset": 1,
+      "offset_inner": 1
+    },
+    {
+      "radius": 0.35,
+      "points_on_circle": 18,
+      "windows": 9,
+      "split_per_segment": 4,
+      "split_per_segment_inner": 4,
+      "window_split": 3,
+      "offset": 1,
+      "offset_inner": 1
+    },
+    {
+      "radius": 0.5,
+      "points_on_circle": 27,
+      "windows": 9,
+      "split_per_segment": 4,
+      "split_per_segment_inner": 4,
+      "window_split": 3,
+      "offset": 0,
+      "offset_inner": 0
+    },
+    {
+      "radius": 0.67,
+
+      "points_on_circle": 36,
+      "windows": 9,
+      "split_per_segment": 3,
+      "split_per_segment_inner": 3,
+      "window_split": 3,
+      "offset": 2,
+      "offset_inner": 3
+    },
+    {
+      "radius": 0.84,
+
+      "points_on_circle": 48,
+      "windows": 12,
+      "split_per_segment": 3,
+      "split_per_segment_inner": 3,
+      "window_split": 3,
+      "offset": 1,
+      "offset_inner": 0
+    },
+    {
+      "radius": 1.0,
+
+      "points_on_circle": 48,
+      "windows": 12,
+      "split_per_segment": 3,
+      "split_per_segment_inner": 3,
+      "window_split": 3,
+      "offset": 3,
+      "offset_inner": 0
+    }
+  ]
+}
