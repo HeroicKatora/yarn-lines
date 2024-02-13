@@ -1,5 +1,6 @@
 mod atomicf32;
 mod debug;
+mod output;
 mod poly;
 mod plan;
 
@@ -172,6 +173,18 @@ fn main() -> Result<(), eyre::Report> {
         &lines,
         &sequences,
         args.rgb,
+    )?;
+
+    let output = output::Files {
+        section_mask_svg: "target/mask.svg".into(),
+        section_list: "target/sections.json".into(),
+    };
+
+    output.dump(
+        dimensions,
+        &plan,
+        &lines,
+        &sequences,
     )?;
 
     Ok(())
