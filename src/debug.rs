@@ -6,17 +6,21 @@ use crate::plan::{Lines, PolygonPoint, RgbSequence};
 
 pub fn dump_plan(
     mut into: impl Write,
+    (w, h): (u32, u32),
     plan: &Polygons,
     lines: &[Lines],
 ) -> Result<(), eyre::Report> {
-    write!(into, r#"<svg viewBox="-100 -100 200 200" xmlns="http://www.w3.org/2000/svg">"#)?;
+    let (w, h) = (w as f32, h as f32);
+    let (lx, ly) = (-w / 2.0, -h / 2.0);
+    write!(into, r#"<svg viewBox="{lx} {ly} {w} {h}" xmlns="http://www.w3.org/2000/svg">"#)?;
+    let (w, h) = (w / 2.0, h / 2.0);
 
     for (window, lines) in plan.windows.iter().zip(lines) {
         write!(into, r#"<polygon points=""#)?;
 
         for (x, y) in &window.points {
-            let x = x * 100.;
-            let y = y * 100.;
+            let x = x * w;
+            let y = y * h;
 
             write!(into, "{x},{y} ")?;
         }
@@ -28,10 +32,10 @@ pub fn dump_plan(
                 let (x1, y1) = window.points[origin];
                 let (x2, y2) = window.points[target];
 
-                let x1 = x1 * 100.;
-                let x2 = x2 * 100.;
-                let y1 = y1 * 100.;
-                let y2 = y2 * 100.;
+                let x1 = x1 * w;
+                let x2 = x2 * w;
+                let y1 = y1 * h;
+                let y2 = y2 * h;
 
                 write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="green" stroke-opacity="40%" />"#)?;
             }
@@ -44,35 +48,39 @@ pub fn dump_plan(
 
 pub fn dump_output(
     mut into: impl Write,
+    (w, h): (u32, u32),
     plan: &Polygons,
     lines: &[Lines],
     sequences: &[RgbSequence],
     is_rgbish: bool,
 ) -> Result<(), eyre::Report> {
-    write!(into, r#"<svg viewBox="-100 -100 200 200" xmlns="http://www.w3.org/2000/svg">"#)?;
+    let (w, h) = (w as f32, h as f32);
+    let (lx, ly) = (-w / 2.0, -h / 2.0);
+    write!(into, r#"<svg viewBox="{lx} {ly} {w} {h}" xmlns="http://www.w3.org/2000/svg">"#)?;
+    let (w, h) = (w / 2.0, h / 2.0);
 
     for ((window, _lines), rgb) in plan.windows.iter().zip(lines).zip(sequences) {
         write!(into, r#"<polygon points=""#)?;
 
         for (x, y) in &window.points {
-            let x = x * 100.;
-            let y = y * 100.;
+            let x = x * w;
+            let y = y * h;
 
             write!(into, "{x},{y} ")?;
         }
 
         write!(into, r#"" fill="none" stroke="green" />"#)?;
 
-        for w in rgb.black.sequence.windows(2) {
-            let &[origin, target] = w.try_into().unwrap();
+        for bw in rgb.black.sequence.windows(2) {
+            let &[origin, target] = bw.try_into().unwrap();
 
             let (x1, y1) = window.points[origin.0];
             let (x2, y2) = window.points[target.0];
 
-            let x1 = x1 * 100.;
-            let x2 = x2 * 100.;
-            let y1 = y1 * 100.;
-            let y2 = y2 * 100.;
+            let x1 = x1 * w;
+            let x2 = x2 * w;
+            let y1 = y1 * h;
+            let y2 = y2 * h;
 
             write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-opacity="40%" />"#)?;
         }
@@ -82,44 +90,44 @@ pub fn dump_output(
             continue;
         }
 
-        for w in rgb.b.sequence.windows(2) {
-            let &[origin, target] = w.try_into().unwrap();
+        for bb in rgb.b.sequence.windows(2) {
+            let &[origin, target] = bb.try_into().unwrap();
 
             let (x1, y1) = window.points[origin.0];
             let (x2, y2) = window.points[target.0];
 
-            let x1 = x1 * 100.;
-            let x2 = x2 * 100.;
-            let y1 = y1 * 100.;
-            let y2 = y2 * 100.;
+            let x1 = x1 * w;
+            let x2 = x2 * w;
+            let y1 = y1 * h;
+            let y2 = y2 * h;
 
             write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="blue" stroke-opacity="40%" />"#)?;
         }
 
-        for w in rgb.g.sequence.windows(2) {
-            let &[origin, target] = w.try_into().unwrap();
+        for bg in rgb.g.sequence.windows(2) {
+            let &[origin, target] = bg.try_into().unwrap();
 
             let (x1, y1) = window.points[origin.0];
             let (x2, y2) = window.points[target.0];
 
-            let x1 = x1 * 100.;
-            let x2 = x2 * 100.;
-            let y1 = y1 * 100.;
-            let y2 = y2 * 100.;
+            let x1 = x1 * w;
+            let x2 = x2 * w;
+            let y1 = y1 * h;
+            let y2 = y2 * h;
 
             write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="green" stroke-opacity="40%" />"#)?;
         }
 
-        for w in rgb.r.sequence.windows(2) {
-            let &[origin, target] = w.try_into().unwrap();
+        for br in rgb.r.sequence.windows(2) {
+            let &[origin, target] = br.try_into().unwrap();
 
             let (x1, y1) = window.points[origin.0];
             let (x2, y2) = window.points[target.0];
 
-            let x1 = x1 * 100.;
-            let x2 = x2 * 100.;
-            let y1 = y1 * 100.;
-            let y2 = y2 * 100.;
+            let x1 = x1 * w;
+            let x2 = x2 * w;
+            let y1 = y1 * h;
+            let y2 = y2 * h;
 
             write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="red" stroke-opacity="40%" />"#)?;
         }

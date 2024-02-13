@@ -1,9 +1,14 @@
+mod atomicf32;
 mod debug;
 mod poly;
 mod plan;
 
+use core::sync::atomic::{AtomicU32, Ordering};
+use atomicf32::AtomicF32;
 use std::path::PathBuf;
 use clap::Parser;
+
+use rayon::prelude::{ParallelBridge, IntoParallelIterator, ParallelIterator};
 
 #[derive(Parser)]
 struct Args {
@@ -25,26 +30,32 @@ fn main() -> Result<(), eyre::Report> {
         std::fs::File::open(args.circle)?
     })?;
 
-    let mut lines = vec![];
-    for window in &plan.windows {
-        lines.push(plan::permissible_lines(&window));
-    }
-
     let image = image::io::Reader::new({
         let file = std::fs::File::open(args.image)?;
         std::io::BufReader::new(file)
     });
 
+    let image = image::io::Reader::with_guessed_format(image)?;
+    let image = image::io::Reader::decode(image)?.into_rgb8();
+    let dimensions = image.dimensions();
+
+    let mut lines = vec![];
+    for window in &plan.windows {
+        lines.push(plan::permissible_lines(&window, dimensions));
+    }
+
     debug::dump_plan(
         std::fs::File::create(args.debug_template)?,
+        dimensions,
         &plan,
         &lines,
     )?;
 
-    let image = image::io::Reader::with_guessed_format(image)?;
-    let image = image::io::Reader::decode(image)?.into_rgb8();
-
     let mut sequences = lines.iter().map(|_| plan::RgbSequence::default()).collect::<Vec<_>>();
+
+    let preliminary_break = AtomicU32::new(0);
+    let regions_covered = AtomicU32::new(0);
+    let yarn_length = AtomicF32::new();
 
     if args.rgb {
         for idx in [0, 1, 2] {
@@ -61,13 +72,28 @@ fn main() -> Result<(), eyre::Report> {
                 }
             }
 
-            for ((window, lines), rgb) in plan.windows.iter().zip(&mut lines).zip(&mut sequences) {
-                // FIXME: the blending mode in planning makes no sense here. We add chroma, but it
-                // does luminance planning. If some region is a mix of red/white it won't plan any
-                // red but everything else. What.
-                let seq = plan::plan(&channel, window, lines)?;
-                *rgb.channel(idx) = seq;
-            }
+            let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
+
+            tasks
+                .par_bridge()
+                .into_par_iter()
+                .try_for_each(|((window, lines), rgb)| {
+                    // FIXME: the blending mode in planning makes no sense here. We add chroma, but it
+                    // does luminance planning. If some region is a mix of red/white it won't plan any
+                    // red but everything else. What.
+                    let seq = plan::plan(&channel, window, lines)?;
+
+                    preliminary_break
+                        .fetch_add(
+                            u32::from(matches!(seq.break_reason, plan::BreakReason::EndOfIteration)),
+                            Ordering::Relaxed,
+                        );
+                    regions_covered.fetch_add(1, Ordering::Relaxed);
+                    yarn_length.fetch_add(seq.yarn_length);
+
+                    *rgb.channel(idx) = seq;
+                    Ok::<_, eyre::Report>(())
+                })?;
         }
 
         {
@@ -81,23 +107,67 @@ fn main() -> Result<(), eyre::Report> {
                 }
             }
 
-            for ((window, lines), rgb) in plan.windows.iter().zip(&mut lines).zip(&mut sequences) {
-                let seq = plan::plan(&channel, window, lines)?;
-                rgb.black = seq;
-            }
+            let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
+
+            tasks
+                .par_bridge()
+                .into_par_iter()
+                .try_for_each(|((window, lines), rgb)| {
+                    let seq = plan::plan(&channel, window, lines)?;
+
+                    preliminary_break
+                        .fetch_add(
+                            u32::from(matches!(seq.break_reason, plan::BreakReason::EndOfIteration)),
+                            Ordering::Relaxed,
+                        );
+                    regions_covered.fetch_add(1, Ordering::Relaxed);
+                    yarn_length.fetch_add(seq.yarn_length);
+
+                    rgb.black = seq;
+                    Ok::<_, eyre::Report>(())
+                })?;
         }
 
     } else {
         let image = image::DynamicImage::ImageRgb8(image).into_luma8();
 
-        for ((window, lines), rgb) in plan.windows.iter().zip(&mut lines).zip(&mut sequences) {
-            let seq = plan::plan(&image, window, lines)?;
-            rgb.black = seq;
-        }
+        let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
+
+        tasks
+            .par_bridge()
+            .into_par_iter()
+            .try_for_each(|((window, lines), rgb)| {
+                let seq = plan::plan(&image, window, lines)?;
+
+                preliminary_break
+                    .fetch_add(
+                        u32::from(matches!(seq.break_reason, plan::BreakReason::EndOfIteration)),
+                        Ordering::Relaxed,
+                    );
+                regions_covered.fetch_add(1, Ordering::Relaxed);
+                yarn_length.fetch_add(seq.yarn_length);
+
+                rgb.black = seq;
+                    Ok::<_, eyre::Report>(())
+            })?;
     }
+
+    let preliminary_break = preliminary_break.load(Ordering::Relaxed);
+    let regions_covered = regions_covered.load(Ordering::Relaxed);
+
+    if preliminary_break > 0 {
+        eprintln!("Regions not covered: {preliminary_break} / {regions_covered}");
+    }
+
+    let yarn_length = yarn_length.load();
+
+    // Scale to height = 0.5m
+    let metric_yarn = yarn_length / (dimensions.1 as f32) * 50. / 100.;
+    eprintln!("Yarn: {metric_yarn:.3} m");
 
     debug::dump_output(
         std::fs::File::create(args.debug_plan)?,
+        dimensions,
         &plan,
         &lines,
         &sequences,

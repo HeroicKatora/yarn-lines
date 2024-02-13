@@ -896,6 +896,7 @@ dependencies = [
  "eyre",
  "image",
  "imageproc",
+ "rayon",
  "serde",
  "serde_json",
 ]

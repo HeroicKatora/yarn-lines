@@ -29,6 +29,12 @@ pub struct Circle {
     pub offset: u32,
     /// Point offset at which the windows begins, in the inner.
     pub offset_inner: u32,
+    #[serde(default = "default_iter_limit")]
+    pub iter_limit: u32,
+}
+
+fn default_iter_limit() -> u32 {
+    512
 }
 
 #[derive(Debug)]
@@ -39,6 +45,7 @@ pub struct Polygons {
 #[derive(Debug)]
 pub struct Polygon {
     pub points: Vec<(f32, f32)>,
+    pub iter_limit: u32,
 }
 
 pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
@@ -54,6 +61,7 @@ pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
         window_split: 0,
         offset: 0,
         offset_inner: 0,
+        iter_limit: default_iter_limit(),
     };
 
     circles.insert(0, middle);
@@ -88,8 +96,13 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
         )
     }
 
-    let step_pre = pre.points_on_circle / post.windows;
-    let step_post = post.points_on_circle / post.windows;
+    fn window_idx(idx: u32, circle: &Circle, post: &Circle) -> u32 {
+        if (circle as *const _ as usize) == (post as *const _ as usize) {
+            post.offset + (idx * circle.points_on_circle) / post.windows
+        } else {
+            post.offset_inner + (idx * circle.points_on_circle) / post.windows
+        }
+    }
 
     let c_pre = 2.0 * std::f32::consts::PI / pre.points_on_circle as f32;
     let c_post = 2.0 * std::f32::consts::PI / post.points_on_circle as f32;
@@ -97,7 +110,7 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
     for idx in 0..post.windows {
         let mut points = vec![];
 
-        for o in (post.offset + idx * step_post)..(post.offset + (idx+1) * step_post) {
+        for o in window_idx(idx, post, post)..window_idx(idx+1, post, post) {
             let a = point_by_idx(o, c_post, post.radius);
             points.push(a);
 
@@ -108,11 +121,11 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
             }
         }
 
-        points.push(point_by_idx(post.offset + (idx+1) * step_post, c_post, post.radius));
+        points.push(point_by_idx(window_idx(idx+1, post, post), c_post, post.radius));
 
         {
-            let a = post.offset + (idx+1) * step_post;
-            let b = post.offset_inner + (idx+1) * step_pre;
+            let a = window_idx(idx+1, post, post);
+            let b = window_idx(idx+1, pre, post);
 
             let a = point_by_idx(a, c_post, post.radius);
             let b = point_by_idx(b, c_pre, pre.radius);
@@ -123,7 +136,7 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
             }
         }
 
-        for o in ((1 + post.offset_inner + idx * step_pre)..=(post.offset_inner + (idx+1) * step_pre)).rev() {
+        for o in ((1 + window_idx(idx, pre, post))..=window_idx(idx+1, pre, post)).rev() {
             let a = point_by_idx(o, c_pre, pre.radius);
             points.push(a);
 
@@ -134,11 +147,11 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
             }
         }
 
-        points.push(point_by_idx(post.offset_inner + idx * step_pre, c_pre, pre.radius));
+        points.push(point_by_idx(window_idx(idx, pre, post), c_pre, pre.radius));
 
         {
-            let a = post.offset_inner + idx * step_pre;
-            let b = post.offset + idx * step_post;
+            let a = window_idx(idx, pre, post);
+            let b = window_idx(idx, post, post);
 
             let a = point_by_idx(a, c_pre, pre.radius);
             let b = point_by_idx(b, c_post, post.radius);
@@ -151,6 +164,7 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
 
         windows.push(Polygon {
             points,
+            iter_limit: post.iter_limit,
         });
     }
 

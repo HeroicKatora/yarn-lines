@@ -65,18 +65,18 @@
       "radius": 0.67,
 
       "points_on_circle": 36,
-      "windows": 9,
+      "windows": 14,
       "split_per_segment": 3,
       "split_per_segment_inner": 3,
       "window_split": 3,
       "offset": 2,
-      "offset_inner": 3
+      "offset_inner": 2
     },
     {
       "radius": 0.84,
 
       "points_on_circle": 48,
-      "windows": 12,
+      "windows": 16,
       "split_per_segment": 3,
       "split_per_segment_inner": 3,
       "window_split": 3,
@@ -87,12 +87,12 @@
       "radius": 1.0,
 
       "points_on_circle": 48,
-      "windows": 12,
+      "windows": 16,
       "split_per_segment": 3,
       "split_per_segment_inner": 3,
       "window_split": 3,
       "offset": 3,
-      "offset_inner": 0
+      "offset_inner": 2
     }
   ]
 }

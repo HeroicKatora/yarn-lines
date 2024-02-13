@@ -9,12 +9,17 @@ use crate::{eo_transfer, oe_transfer};
 #[derive(Default)]
 pub struct Lines {
     pub idx_vec: Vec<PolygonPoint>,
+    /// Weights of the lines in `idx_vec` (a coverage metric).
+    pub weight_vec: Vec<f32>,
     pub ranges: Vec<Range<usize>>,
+    pub iter_limit: u32,
 }
 
 #[derive(Default, Clone)]
 pub struct Sequence {
+    pub break_reason: BreakReason,
     pub sequence: Vec<PolygonPoint>,
+    pub yarn_length: f32,
 }
 
 #[derive(Default, Clone)]
@@ -25,8 +30,23 @@ pub struct RgbSequence {
     pub black: Sequence,
 }
 
+#[derive(Default, Clone)]
+pub enum BreakReason {
+    #[default]
+    EndOfIteration,
+    Covered,
+    LocalOptimum,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PolygonPoint(pub usize);
+
+struct ImageBackground {
+    /// The assumed background brightness, from which to compose.
+    background: image::Luma<u8>,
+    /// Total subtracted lightness which to achieve by yarn.
+    darkness: f32,
+}
 
 pub fn plan(
     image: &GrayImage,
@@ -88,7 +108,7 @@ pub fn plan(
         image::Luma([0xff]),
     );
 
-    let background = image_background(&mask, &target);
+    let analysis = image_background(&mask, &target);
 
     let mut done = GrayImage::new(
         bound.width(),
@@ -97,7 +117,7 @@ pub fn plan(
     imageproc::drawing::draw_polygon_mut(
         &mut done,
         &draw_points,
-        background,
+        image::Luma([0xff]),
     );
 
     let mut current = PolygonPoint(0);
@@ -105,9 +125,18 @@ pub fn plan(
     let mut sequence = Vec::new();
     sequence.push(current);
 
-    for _ in 0..128 {
+    let mut yarn_length = 0.0f32;
+    let mut break_reason = BreakReason::EndOfIteration;
+
+    for _ in 0..poly.iter_limit {
+        if yarn_length >= analysis.darkness * 16.0 {
+            break_reason = BreakReason::Covered;
+            break;
+        }
+
         let r = &lines.ranges[current.0];
         let threads = &lines.idx_vec[r.start..r.end];
+        let weights = &lines.weight_vec[r.start..r.end];
 
         // Determine the best-fit for the next segment.
         let best_fit = best_fit(
@@ -120,9 +149,15 @@ pub fn plan(
             &done,
         );
 
-        let target = lines.idx_vec[r.start..r.end][best_fit];
-        darken_by_thread(&mut done, &draw_points, current, target);
+        let Some(best_fit) = best_fit else {
+            break_reason = BreakReason::LocalOptimum;
+            break;
+        };
 
+        let target = threads[best_fit];
+        yarn_length += weights[best_fit];
+
+        darken_by_thread(&mut done, &draw_points, current, target);
         sequence.push(target);
         current = target;
     }
@@ -135,7 +170,9 @@ pub fn plan(
     target.save(format!("target/{i}-target.png"))?;
 
     Ok(Sequence {
+        break_reason,
         sequence,
+        yarn_length,
     })
 }
 
@@ -153,7 +190,7 @@ impl RgbSequence {
 fn image_background(
     mask: &GrayImage,
     target: &GrayImage,
-) -> image::Luma<u8> {
+) -> ImageBackground {
     let mut abs_light = 0.0f32;
     let mut count = 0;
 
@@ -169,14 +206,33 @@ fn image_background(
         }
     }
 
-    image::Luma([if count == 0 {
+    let background_lightness;
+    let background = image::Luma([if count == 0 {
+        background_lightness = 1.0;
         0xff
     } else {
         let med = abs_light / (count as f32);
         // Lighten the whole thing, we only paint with pigment.
-        let med = (med + 0.5) / 1.5;
+        background_lightness = (med + 0.5) / 1.5;
         oe_transfer(med)
-    }])
+    }]);
+
+    let mut darkness = 0.0f32;
+    for x in 0..mask.width() {
+        for y in 0..mask.height() {
+            if *mask.get_pixel(x, y) != image::Luma([0xff]) {
+                continue;
+            }
+
+            let &image::Luma([t]) = target.get_pixel(x, y);
+            darkness += (1.0 - eo_transfer(t)).max(0.0);
+        }
+    }
+
+    ImageBackground {
+        background,
+        darkness,
+    }
 }
 
 fn best_fit(
@@ -187,8 +243,8 @@ fn best_fit(
     threads: &[PolygonPoint],
     lines: &Lines,
     done: &GrayImage,
-) -> usize {
-    let _pre_score = score_img_to_target(mask, target, done);
+) -> Option<usize> {
+    let pre_score = score_img_to_target(mask, target, done);
 
     let mut scores = Vec::with_capacity(threads.len());
     for &candidate in threads {
@@ -198,16 +254,19 @@ fn best_fit(
         scores.push(score);
     }
 
-    let best = scores
+    let (best, &best_score) = scores
         .iter()
         .enumerate()
         .min_by(|(_, a), (_, b)| {
             a.total_cmp(b)
         })
-        .map(|(idx, _)| idx)
         .unwrap();
 
-    best
+    if best_score < pre_score {
+        Some(best)
+    } else {
+        None
+    }
 }
 
 fn darken_by_thread(
@@ -281,9 +340,12 @@ fn score_img_to_target(
 
 pub fn permissible_lines(
     poly: &Polygon,
+    (w, h): (u32, u32),
     // 0..1 fraction of rectangle required
     // partial: f32,
 ) -> Lines {
+    let (w, h) = (w as f32 / 2.0, h as f32 / 2.0);
+
     fn dot(a: (f32, f32), b: (f32, f32)) -> f32 {
         a.0 * b.0 + a.1 * b.1
     }
@@ -306,10 +368,12 @@ pub fn permissible_lines(
     }
 
     let mut lines = Lines::default();
+    lines.iter_limit = poly.iter_limit;
 
+    let len = poly.points.len();
     for (offset, _) in poly.points.iter().enumerate() {
         // Find those targets for which the line.
-        let offset = offset + poly.points.len();
+        let offset = offset + len;
         let count = poly.points.len() - 3;
         let start = lines.idx_vec.len();
 
@@ -321,7 +385,14 @@ pub fn permissible_lines(
                 continue;
             }
 
-            lines.idx_vec.push(PolygonPoint(candidate % poly.points.len()));
+
+            let a = poly.points[candidate % len];
+            let start = poly.points[offset % len];
+            let sa = ((a.0 - start.0)*w, (a.1 - start.1)*h);
+            let length = dot(sa, sa).sqrt();
+
+            lines.idx_vec.push(PolygonPoint(candidate % len));
+            lines.weight_vec.push(length);
         }
 
         let end = lines.idx_vec.len();
