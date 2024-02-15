@@ -46,6 +46,7 @@ pub struct Polygons {
 pub struct Polygon {
     pub points: Vec<(f32, f32)>,
     pub iter_limit: u32,
+    pub names: Vec<String>,
 }
 
 pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
@@ -109,19 +110,25 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
 
     for idx in 0..post.windows {
         let mut points = vec![];
+        let mut names = vec![];
 
-        for o in window_idx(idx, post, post)..window_idx(idx+1, post, post) {
+        let outer_iter = window_idx(idx, post, post)..window_idx(idx+1, post, post);
+        for (idx, o) in outer_iter.enumerate() {
             let a = point_by_idx(o, c_post, post.radius);
             points.push(a);
+            names.push(format!("o{idx}"));
 
             for mid in 1..post.split_per_segment {
                 let b = point_by_idx(o + 1, c_post, post.radius);
                 let f = mid as f32 / post.split_per_segment as f32;
                 points.push(lerp(a, b, f));
+                names.push(format!("o{idx}.{mid}"));
             }
         }
 
         points.push(point_by_idx(window_idx(idx+1, post, post), c_post, post.radius));
+        let post_name = (window_idx(idx, post, post)..window_idx(idx+1, post, post)).len();
+        names.push(format!("o{post_name}"));
 
         {
             let a = window_idx(idx+1, post, post);
@@ -132,22 +139,28 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
 
             for mid in 1..post.window_split {
                 let f = mid as f32 / post.window_split as f32;
-                points.push(lerp(a, b, f))
+                points.push(lerp(a, b, f));
+                names.push(format!("r.{mid}"));
             }
         }
 
-        for o in ((1 + window_idx(idx, pre, post))..=window_idx(idx+1, pre, post)).rev() {
+        let inner_iter = ((1 + window_idx(idx, pre, post))..=window_idx(idx+1, pre, post)).rev();
+        for (idx, o) in inner_iter.enumerate() {
             let a = point_by_idx(o, c_pre, pre.radius);
             points.push(a);
+            names.push(format!("o{idx}"));
 
             for mid in 1..post.split_per_segment_inner {
                 let b = point_by_idx(o - 1, c_pre, pre.radius);
                 let f = mid as f32 / post.split_per_segment_inner as f32;
                 points.push(lerp(a, b, f));
+                names.push(format!("i{idx}.{mid}"));
             }
         }
 
         points.push(point_by_idx(window_idx(idx, pre, post), c_pre, pre.radius));
+        let post_name = (window_idx(idx, pre, post)..window_idx(idx+1, pre, post)).len();
+        names.push(format!("i{post_name}"));
 
         {
             let a = window_idx(idx, pre, post);
@@ -158,13 +171,15 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
 
             for mid in 1..post.window_split {
                 let f = mid as f32 / post.window_split as f32;
-                points.push(lerp(a, b, f))
+                points.push(lerp(a, b, f));
+                names.push(format!("l.{mid}"));
             }
         }
 
         windows.push(Polygon {
             points,
             iter_limit: post.iter_limit,
+            names,
         });
     }
 
