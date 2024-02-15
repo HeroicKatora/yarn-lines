@@ -1,4 +1,5 @@
 mod atomicf32;
+mod color;
 mod debug;
 mod output;
 mod poly;
@@ -59,20 +60,16 @@ fn main() -> Result<(), eyre::Report> {
     let yarn_length = AtomicF32::new();
 
     if args.rgb {
-        for idx in [0, 1, 2] {
-            let mut channel = image::GrayImage::new(image.width(), image.height());
+        let base = color::PrimaryBase {
+            red: image::Rgb([0xff, 0, 0]),
+            green: image::Rgb([0, 0xff, 0]),
+            blue: image::Rgb([0, 0, 0xff]),
+        };
 
-            for x in 0..image.width() {
-                for y in 0..image.height() {
-                    let image::Rgb(ch) = *image.get_pixel(x, y);
-                    let black = ch[0].min(ch[1]).min(ch[2]);
+        let color_plan = color::decouple(&image, &base);
+        let channels = [&color_plan.red, &color_plan.green, &color_plan.blue];
 
-                    // We invert the CYMK equivalent chroma.
-                    let chroma = (1.0 - eo_transfer(ch[idx])) / (1.0 - eo_transfer(black));
-                    channel.put_pixel(x, y, image::Luma([oe_transfer(chroma)]));
-                }
-            }
-
+        for (idx, channel) in [0, 1, 2].into_iter().zip(channels) {
             let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
 
             tasks
@@ -98,16 +95,7 @@ fn main() -> Result<(), eyre::Report> {
         }
 
         {
-            let mut channel = image::GrayImage::new(image.width(), image.height());
-
-            for x in 0..image.width() {
-                for y in 0..image.height() {
-                    let image::Rgb(ch) = *image.get_pixel(x, y);
-                    let black = ch[0].min(ch[1]).min(ch[2]);
-                    channel.put_pixel(x, y, image::Luma([black]));
-                }
-            }
-
+            let channel = &color_plan.gray;
             let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
 
             tasks
