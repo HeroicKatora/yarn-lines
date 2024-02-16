@@ -191,17 +191,17 @@ fn decouple_pixel(lab: Lab, base: &LabBase) -> Primaries {
 
     let [a, b] = invfactors(lab, &base.br_base);
     if a >= 0.0 && b >= 0.0 {
-        return primaries_of(l, a, b, 2, 0);
+        return primaries_of(l, a, b, 3, 1);
     }
 
     let [a, b] = invfactors(lab, &base.rg_base);
     if a >= 0.0 && b >= 0.0 {
-        return primaries_of(l, a, b, 0, 1);
+        return primaries_of(l, a, b, 1, 2);
     }
 
     let [a, b] = invfactors(lab, &base.gb_base);
     if a >= 0.0 && b >= 0.0 {
-        return primaries_of(l, a, b, 1, 2);
+        return primaries_of(l, a, b, 2, 3);
     }
 
     return Primaries([l, 0.0, 0.0, 0.0])
