@@ -1,6 +1,7 @@
 //! Print a plan polygons as SVG.
 use std::io::Write;
 
+use crate::color::PrimaryBase;
 use crate::poly::Polygons;
 use crate::plan::{Lines, PolygonPoint, RgbSequence};
 
@@ -52,6 +53,7 @@ pub fn dump_output(
     plan: &Polygons,
     lines: &[Lines],
     sequences: &[RgbSequence],
+    primary: &PrimaryBase,
     is_rgbish: bool,
 ) -> Result<(), eyre::Report> {
     let (w, h) = (w as f32, h as f32);
@@ -86,10 +88,10 @@ pub fn dump_output(
         }
 
         if !is_rgbish {
-
             continue;
         }
 
+        let c_blue = format_color_css(&primary.blue);
         for bb in rgb.b.sequence.windows(2) {
             let &[origin, target] = bb.try_into().unwrap();
 
@@ -101,9 +103,10 @@ pub fn dump_output(
             let y1 = y1 * h;
             let y2 = y2 * h;
 
-            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="blue" stroke-opacity="40%" />"#)?;
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{c_blue}" stroke-opacity="80%" />"#)?;
         }
 
+        let c_green = format_color_css(&primary.green);
         for bg in rgb.g.sequence.windows(2) {
             let &[origin, target] = bg.try_into().unwrap();
 
@@ -115,9 +118,10 @@ pub fn dump_output(
             let y1 = y1 * h;
             let y2 = y2 * h;
 
-            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="green" stroke-opacity="40%" />"#)?;
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{c_green}" stroke-opacity="80%" />"#)?;
         }
 
+        let c_red = format_color_css(&primary.red);
         for br in rgb.r.sequence.windows(2) {
             let &[origin, target] = br.try_into().unwrap();
 
@@ -129,10 +133,15 @@ pub fn dump_output(
             let y1 = y1 * h;
             let y2 = y2 * h;
 
-            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="red" stroke-opacity="40%" />"#)?;
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{c_red}" stroke-opacity="80%" />"#)?;
         }
     }
 
     write!(into, r#"</svg>"#)?;
     Ok(())
+}
+
+fn format_color_css(color: &image::Rgb<u8>) -> String {
+    let [r, g, b] = color.0;
+    format!("#{r:02x}{g:02x}{b:02x}")
 }

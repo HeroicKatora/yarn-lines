@@ -32,6 +32,8 @@ pub fn decouple(
         let green = image_rgb_to_lab(primaries.green);
         let blue = image_rgb_to_lab(primaries.blue);
 
+        dbg!(green);
+
         LabBase {
             red,
             green,
@@ -146,11 +148,22 @@ fn decouple_pixel(lab: Lab, base: &LabBase) -> Primaries {
         let dot = a*c + b*d;
         let scale = ((c*c + d*d)*(a*a + b*b)).powf(0.5);
 
-        if dot < 0.8 * scale {
+        if dot < 0.9 * scale {
             return None;
         }
 
-        if scale < 0.01 {
+        if scale < 0.02f32.powf(2.0) {
+            // We might as well call this gray due to low chroma.
+            // Minimizing the yarn looks less bulky, which makes for better effect. But the chroma
+            // should not be fully disregarded!
+            let mut c = [0.0; 4];
+            c[0] = l * 0.9;
+            c[i0] = l * 0.1;
+            // FIXME: this case and l < lref * 1.2 should be treated similar, no?
+            return Some(Primaries(c))
+        }
+
+        if scale < 0.01 * dot {
             return None;
         }
 
@@ -160,10 +173,14 @@ fn decouple_pixel(lab: Lab, base: &LabBase) -> Primaries {
         }
 
         if l > lref {
-            // The primary is still a better estimator than gray. It's a little dark apparently.
-            let mut c = [0.0; 4];
-            c[i0] = 1.0;
-            return Some(Primaries(c));
+            if l < lref * 1.2 {
+                // The primary is still a better estimator than gray. It's a little dark apparently.
+                let mut c = [0.0; 4];
+                c[i0] = 1.0;
+                return Some(Primaries(c));
+            } else {
+                return None;
+            }
         }
 
         // The mix of the primary to get the right chroma point.

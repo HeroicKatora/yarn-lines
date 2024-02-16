@@ -59,14 +59,16 @@ fn main() -> Result<(), eyre::Report> {
     let regions_covered = AtomicU32::new(0);
     let yarn_length = AtomicF32::new();
 
-    if args.rgb {
-        let base = color::PrimaryBase {
-            red: image::Rgb([0xff, 0, 0]),
-            green: image::Rgb([0, 0xff, 0]),
-            blue: image::Rgb([0, 0, 0xff]),
-        };
+    let primary = color::PrimaryBase {
+        red: image::Rgb([0xd2, 0x85, 0x2b]),
+        // green: image::Rgb([0xe6, 0xff, 0xff]),
+        green: image::Rgb([0xff, 0xff, 0xff]),
+        blue: image::Rgb([0xd2, 0xe2, 0xef]),
+        // blue: image::Rgb([0xd5, 0xed, 0xff]),
+    };
 
-        let color_plan = color::decouple(&image, &base);
+    if args.rgb {
+        let color_plan = color::decouple(&image, &primary);
         let channels = [&color_plan.red, &color_plan.green, &color_plan.blue];
 
         for (idx, channel) in [0, 1, 2].into_iter().zip(channels) {
@@ -160,6 +162,7 @@ fn main() -> Result<(), eyre::Report> {
         &plan,
         &lines,
         &sequences,
+        &primary,
         args.rgb,
     )?;
 
