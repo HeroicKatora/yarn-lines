@@ -12,10 +12,6 @@ struct LabBase {
     pub red: Lab,
     pub green: Lab,
     pub blue: Lab,
-
-    pub rg_base: [[f32; 2]; 2],
-    pub gb_base: [[f32; 2]; 2],
-    pub br_base: [[f32; 2]; 2],
 }
 
 pub struct ColorPlan {
@@ -37,16 +33,11 @@ pub fn decouple(
         let blue = image_rgb_to_lab(primaries.blue);
 
         LabBase {
-            rg_base: inverter(red, green),
-            gb_base: inverter(green, blue),
-            br_base: inverter(blue, red),
             red,
             green,
             blue,
         }
     };
-
-    eprintln!("{base:?}");
 
     let lab: Vec<Primaries> = image
         .pixels()
@@ -147,61 +138,75 @@ fn cbrtf(v: f32) -> f32 {
     v.powf(1.0/3.0)
 }
 
-fn inverter(
-    ma: Lab,
-    mb: Lab,
-) -> [[f32; 2]; 2] {
-    let [_, a, b] = ma.0;
-    let [_, c, d] = mb.0;
-    let det = a * d - c * b;
-
-    [
-        [d / det, -b / det],
-        [-c / det, a / det],
-    ]
-}
-
 fn decouple_pixel(lab: Lab, base: &LabBase) -> Primaries {
-    fn invfactors(lab: Lab, base: &[[f32; 2]; 2]) -> [f32; 2] {
-        let [_, a, b] = lab.0;
-        let ia = a * base[0][0] + b * base[0][1];
-        let ib = a * base[1][0] + b * base[1][1];
-        [ia, ib]
-    }
+    fn filter_decent_lab(c: Lab, base: &Lab, i0: usize) -> Option<Primaries> {
+        let [l, a, b] = c.0;
+        let [lref, c, d] = base.0;
 
-    fn primaries_of(l: f32, a: f32, b: f32, i0: usize, i1: usize) -> Primaries {
-        let a = a.max(0.0).min(1.0);
-        let b = b.max(0.0).min(1.0);
-        let primary_sum = a + b;
-        let coefficient = primary_sum.min(1.0);
-        // Grayness coefficient, such that the mix will be right.
-        let g = 1.0 - coefficient;
+        let dot = a*c + b*d;
+        let scale = ((c*c + d*d)*(a*a + b*b)).powf(0.5);
 
-        let mut f = [g * l, 0.0, 0.0, 0.0];
-
-        if coefficient > 0.01 {
-            f[i0] = a / coefficient;
-            f[i1] = b / coefficient;
+        if dot < 0.8 * scale {
+            return None;
         }
 
-        Primaries(f)
+        if scale < 0.01 {
+            return None;
+        }
+
+        if lref < 0.01 {
+            // Just estimate via pure gray.
+            return None;
+        }
+
+        if l > lref {
+            // The primary is still a better estimator than gray. It's a little dark apparently.
+            let mut c = [0.0; 4];
+            c[i0] = 1.0;
+            return Some(Primaries(c));
+        }
+
+        // The mix of the primary to get the right chroma point.
+        let coefficient = dot / scale;
+        let g = 1.0 - coefficient;
+
+        if g < 0.01 {
+            let mut c = [0.0; 4];
+            c[i0] = 1.0;
+            return Some(Primaries(c));
+        }
+
+        // Mixing in the primary is a linear interpolation between its color and some form of gray
+        // such that the target color in on that line. We find the right gray as the intercept of
+        // the line.
+        //
+        // m = (lref - l)/(1.0 - coefficient)
+        // l = coefficient·m + b
+        // lref = m + b
+        //
+        // b = lref - m
+        // b = ((g - 1.0)*lref + l)/g
+        // b = (l - coefficient*lref)/g
+        let b = lref - (lref - l)/g;
+
+        let mut c = [b, 0.0, 0.0, 0.0];
+        c[i0] = coefficient;
+
+        Some(Primaries(c))
     }
 
     let l = lab.0[0];
 
-    let [a, b] = invfactors(lab, &base.br_base);
-    if a >= 0.0 && b >= 0.0 {
-        return primaries_of(l, a, b, 3, 1);
+    if let Some(p) = filter_decent_lab(lab, &base.red, 1) {
+        return p;
     }
 
-    let [a, b] = invfactors(lab, &base.rg_base);
-    if a >= 0.0 && b >= 0.0 {
-        return primaries_of(l, a, b, 1, 2);
+    if let Some(p) = filter_decent_lab(lab, &base.green, 2) {
+        return p;
     }
 
-    let [a, b] = invfactors(lab, &base.gb_base);
-    if a >= 0.0 && b >= 0.0 {
-        return primaries_of(l, a, b, 2, 3);
+    if let Some(p) = filter_decent_lab(lab, &base.blue, 3) {
+        return p;
     }
 
     return Primaries([l, 0.0, 0.0, 0.0])
