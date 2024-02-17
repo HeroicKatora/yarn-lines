@@ -141,50 +141,77 @@ fn cbrtf(v: f32) -> f32 {
 }
 
 fn decouple_pixel(lab: Lab, base: &LabBase) -> Primaries {
+    fn smoothstep(x: f32, range: core::ops::Range<f32>) -> f32 {
+        let x = (x - range.start) / (range.end - range.start);
+        if !(x >= 0.0) {
+            0.0
+        } else if !(x <= 1.0) {
+            let sq = x * x;
+            3.*sq - 2.*sq*x
+        } else {
+            1.0
+        }
+    }
+
     fn filter_decent_lab(c: Lab, base: &Lab, i0: usize) -> Option<Primaries> {
         let [l, a, b] = c.0;
         let [lref, c, d] = base.0;
-
-        let dot = a*c + b*d;
-        let scale = ((c*c + d*d)*(a*a + b*b)).powf(0.5);
-
-        if dot < 0.9 * scale {
-            return None;
-        }
-
-        if scale < 0.02f32.powf(2.0) {
-            // We might as well call this gray due to low chroma.
-            // Minimizing the yarn looks less bulky, which makes for better effect. But the chroma
-            // should not be fully disregarded!
-            let mut c = [0.0; 4];
-            c[0] = l * 0.9;
-            c[i0] = l * 0.1;
-            // FIXME: this case and l < lref * 1.2 should be treated similar, no?
-            return Some(Primaries(c))
-        }
-
-        if scale < 0.01 * dot {
-            return None;
-        }
 
         if lref < 0.01 {
             // Just estimate via pure gray.
             return None;
         }
 
+        // If we fail to represent with the color itself, go for gray via smooth stepping.
+        let mut effective_gray = 1.0;
+
         if l > lref {
-            if l < lref * 1.2 {
-                // The primary is still a better estimator than gray. It's a little dark apparently.
-                let mut c = [0.0; 4];
-                c[i0] = 1.0;
-                return Some(Primaries(c));
-            } else {
+            let upper_error = lref * 1.2;
+            if l >= upper_error {
+                // Too bright!
                 return None;
             }
+
+            let v = smoothstep(l, lref..upper_error);
+            effective_gray *= (1.0 - v).powf(0.2);
+        }
+
+        let dot = a*c + b*d;
+        let scale = ((c*c + d*d)*(a*a + b*b)).powf(0.5);
+
+        let aligned_fade = 0.93*scale;
+        let aligned_limit = 0.85*scale;
+
+        if dot < aligned_limit {
+            return None;
+        }
+
+        if dot < aligned_fade {
+            // Color is not fully aligned, so prefer a grayish.
+            let v = smoothstep(dot, aligned_limit..aligned_fade);
+            effective_gray *= v.powf(0.8);
+        }
+
+        let gray_lower_limit = 0.02f32.powf(2.0);
+        let gray_fade_limit = 0.05f32.powf(2.0);
+
+        if scale < gray_lower_limit {
+            // We might as well call this gray due to low chroma.
+            // Minimizing the yarn looks less bulky, which makes for better effect. But the chroma
+            // should not be fully disregarded!
+            let mut c = [0.0; 4];
+            c[0] = l * 0.5;
+            c[i0] = l * 0.5;
+            return Some(Primaries(c))
+        }
+
+        if scale < gray_fade_limit {
+            let v = smoothstep(scale, gray_lower_limit..gray_fade_limit);
+            effective_gray *= v.powf(0.5);
         }
 
         // The mix of the primary to get the right chroma point.
-        let coefficient = dot / scale;
+        let coefficient = (dot / scale) * effective_gray;
         let g = 1.0 - coefficient;
 
         if g < 0.01 {
@@ -206,9 +233,14 @@ fn decouple_pixel(lab: Lab, base: &LabBase) -> Primaries {
         // b = (l - coefficient*lref)/g
         let b = lref - (lref - l)/g;
 
-        let mut c = [b, 0.0, 0.0, 0.0];
-        c[i0] = coefficient;
+        // Lighten the luminance, remember we mix towards black, not towards full brightness.
+        let mut c = if b >= 1.0 {
+            [l, 0.0, 0.0, 0.0]
+        } else {
+            [l/b, 0.0, 0.0, 0.0]
+        };
 
+        c[i0] = coefficient;
         Some(Primaries(c))
     }
 

@@ -135,6 +135,25 @@ pub fn dump_output(
 
             write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{c_red}" stroke-opacity="80%" />"#)?;
         }
+
+        for (idx, bw) in rgb.black.sequence.windows(2).enumerate() {
+            if idx % 4 != 0 {
+                continue;
+            }
+
+            let &[origin, target] = bw.try_into().unwrap();
+
+            let (x1, y1) = window.points[origin.0];
+            let (x2, y2) = window.points[target.0];
+
+            let x1 = x1 * w;
+            let x2 = x2 * w;
+            let y1 = y1 * h;
+            let y2 = y2 * h;
+
+            write!(into, r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="black" stroke-opacity="40%" />"#)?;
+        }
+
     }
 
     write!(into, r#"</svg>"#)?;
