@@ -2,6 +2,11 @@ use std::ops::Range;
 
 use image::{GenericImage, GenericImageView, GrayImage};
 use imageproc::{rect::Rect, point::Point};
+use rand_xoshiro::{
+    rand_core::SeedableRng,
+    rand_core::RngCore,
+    Xoshiro128Plus,
+};
 
 use crate::poly::Polygon;
 use crate::{eo_transfer, oe_transfer};
@@ -42,8 +47,6 @@ pub enum BreakReason {
 pub struct PolygonPoint(pub usize);
 
 struct ImageBackground {
-    /// The assumed background brightness, from which to compose.
-    background: image::Luma<u8>,
     /// Total subtracted lightness which to achieve by yarn.
     darkness: f32,
 }
@@ -128,6 +131,15 @@ pub fn plan(
     let mut yarn_length = 0.0f32;
     let mut break_reason = BreakReason::EndOfIteration;
 
+    let mut xoshiro = Xoshiro128Plus::from_seed({
+        let mut seed = [0; 16];
+        let deterministic = analysis.darkness.to_ne_bytes();
+        seed[..4].copy_from_slice(&deterministic);
+        seed
+    });
+
+    let mut hit_count = vec![0; lines.ranges.len()];
+
     for _ in 0..poly.iter_limit {
         if yarn_length >= analysis.darkness * 16.0 {
             break_reason = BreakReason::Covered;
@@ -145,8 +157,9 @@ pub fn plan(
             &draw_points,
             current,
             threads,
-            &lines,
             &done,
+            &mut xoshiro,
+            &mut hit_count,
         );
 
         let Some(best_fit) = best_fit else {
@@ -158,7 +171,9 @@ pub fn plan(
         yarn_length += weights[best_fit];
 
         darken_by_thread(&mut done, &draw_points, current, target);
+        hit_count[target.0] += 1;
         sequence.push(target);
+
         current = target;
     }
 
@@ -191,32 +206,6 @@ fn image_background(
     mask: &GrayImage,
     target: &GrayImage,
 ) -> ImageBackground {
-    let mut abs_light = 0.0f32;
-    let mut count = 0;
-
-    for x in 0..mask.width() {
-        for y in 0..mask.height() {
-            if *mask.get_pixel(x, y) != image::Luma([0xff]) {
-                continue;
-            }
-
-            count += 1;
-            let &image::Luma([t]) = target.get_pixel(x, y);
-            abs_light += eo_transfer(t);
-        }
-    }
-
-    let background_lightness;
-    let background = image::Luma([if count == 0 {
-        background_lightness = 1.0;
-        0xff
-    } else {
-        let med = abs_light / (count as f32);
-        // Lighten the whole thing, we only paint with pigment.
-        background_lightness = (med + 0.5) / 1.5;
-        oe_transfer(med)
-    }]);
-
     let mut darkness = 0.0f32;
     for x in 0..mask.width() {
         for y in 0..mask.height() {
@@ -230,7 +219,6 @@ fn image_background(
     }
 
     ImageBackground {
-        background,
         darkness,
     }
 }
@@ -241,32 +229,54 @@ fn best_fit(
     draw_points: &[Point<i32>],
     source: PolygonPoint,
     threads: &[PolygonPoint],
-    lines: &Lines,
     done: &GrayImage,
+    rng: &mut Xoshiro128Plus,
+    hit_count: &mut [u32],
 ) -> Option<usize> {
     let pre_score = score_img_to_target(mask, target, done);
 
     let mut scores = Vec::with_capacity(threads.len());
-    for &candidate in threads {
+    for (idx, &candidate) in threads.iter().enumerate() {
         let mut conjecture = done.clone();
         darken_by_thread(&mut conjecture, draw_points, source, candidate);
         let score = score_img_to_target(mask, target, &conjecture);
-        scores.push(score);
+
+        if !(score < pre_score) {
+            continue;
+        }
+
+        let improve = pre_score - score;
+        // u from [0; 1)
+        let u = (rng.next_u32() as f32) / (2.0f32.powi(32));
+        let weight = u.powf(1.0 / u);
+
+        scores.push((idx, improve, weight, candidate));
     }
 
-    let (best, &best_score) = scores
+    scores.sort_unstable_by(|(_, a, _, _), (_, b, _, _)| {
+        a.total_cmp(b)
+    });
+
+    let (best_idx, _, best_w, best_candidate) = scores.pop()?;
+
+    let best_candidate = scores
         .iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| {
-            a.total_cmp(b)
+        .filter(|(_, _, _, candidate)| {
+            hit_count[best_candidate.0] > hit_count[candidate.0]
         })
-        .unwrap();
+        .max_by(|(_, _, wa, _), (_, _, wb, _)| {
+            wa.total_cmp(wb)
+        });
 
-    if best_score < pre_score {
-        Some(best)
+    let Some(&(sec_idx, _, sec_w, _)) = best_candidate else {
+        return Some(best_idx);
+    };
+
+    Some(if best_w > sec_w {
+        best_idx
     } else {
-        None
-    }
+        sec_idx
+    })
 }
 
 fn darken_by_thread(

@@ -59,13 +59,7 @@ fn main() -> Result<(), eyre::Report> {
     let regions_covered = AtomicU32::new(0);
     let yarn_length = AtomicF32::new();
 
-    let primary = color::PrimaryBase {
-        red: image::Rgb([0xd2, 0x85, 0x2b]),
-        // green: image::Rgb([0xe6, 0xff, 0xff]),
-        green: image::Rgb([0xff, 0xff, 0xff]),
-        blue: image::Rgb([0xd2, 0xe2, 0xef]),
-        // blue: image::Rgb([0xd5, 0xed, 0xff]),
-    };
+    let primary: color::PrimaryBase = plan.primaries.to_color_base();
 
     if args.rgb {
         let color_plan = color::decouple(&image, &primary);

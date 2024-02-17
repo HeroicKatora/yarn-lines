@@ -1,11 +1,14 @@
 //! Turn a definition file into polygons.
 use serde::Deserialize;
+use crate::color;
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum Definition {
     Circles {
         circles: Vec<Circle>,
+        #[serde(default)]
+        primaries: Primaries,
     }
 }
 
@@ -33,6 +36,13 @@ pub struct Circle {
     pub iter_limit: u32,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct Primaries {
+    yarn0: [u8; 3],
+    yarn1: [u8; 3],
+    yarn2: [u8; 3],
+}
+
 fn default_iter_limit() -> u32 {
     512
 }
@@ -40,6 +50,7 @@ fn default_iter_limit() -> u32 {
 #[derive(Debug)]
 pub struct Polygons {
     pub windows: Vec<Polygon>,
+    pub primaries: Primaries,
 }
 
 #[derive(Debug)]
@@ -51,7 +62,7 @@ pub struct Polygon {
 
 pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
     let def: Definition = serde_json::from_reader(def)?;
-    let Definition::Circles { mut circles } = def;
+    let Definition::Circles { mut circles, primaries } = def;
 
     let middle = Circle {
         radius: 0.0,
@@ -75,6 +86,7 @@ pub fn read(def: impl std::io::Read) -> Result<Polygons, eyre::Report> {
 
     Ok(Polygons {
         windows,
+        primaries,
     })
 }
 
@@ -184,4 +196,25 @@ fn append_windows(windows: &mut Vec<Polygon>, pre: &Circle, post: &Circle) -> Re
     }
 
     Ok(())
+}
+
+impl Default for Primaries {
+    fn default() -> Self {
+        Primaries {
+            yarn0: [0xd2, 0x85, 0x2b],
+            // green: image::Rgb([0xe6, 0xff, 0xff]),
+            yarn1: [0xff, 0xff, 0xff],
+            yarn2: [0xd2, 0xe2, 0xef],
+        }
+    }
+}
+
+impl Primaries {
+    pub fn to_color_base(&self) -> color::PrimaryBase {
+        color::PrimaryBase {
+            red: image::Rgb(self.yarn0),
+            green: image::Rgb(self.yarn1),
+            blue: image::Rgb(self.yarn2),
+        }
+    }
 }
