@@ -68,6 +68,11 @@ fn main() -> Result<(), eyre::Report> {
         for (idx, channel) in [0, 1, 2].into_iter().zip(channels) {
             let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
 
+            let class = plan::LineClass {
+                of: 4,
+                idx,
+            };
+
             tasks
                 .par_bridge()
                 .into_par_iter()
@@ -75,7 +80,7 @@ fn main() -> Result<(), eyre::Report> {
                     // FIXME: the blending mode in planning makes no sense here. We add chroma, but it
                     // does luminance planning. If some region is a mix of red/white it won't plan any
                     // red but everything else. What.
-                    let seq = plan::plan(&channel, window, lines)?;
+                    let seq = plan::plan(&channel, window, lines, &class)?;
 
                     preliminary_break
                         .fetch_add(
@@ -94,11 +99,16 @@ fn main() -> Result<(), eyre::Report> {
             let channel = &color_plan.gray;
             let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
 
+            let class = plan::LineClass {
+                of: 4,
+                idx: 3,
+            };
+
             tasks
                 .par_bridge()
                 .into_par_iter()
                 .try_for_each(|((window, lines), rgb)| {
-                    let seq = plan::plan(&channel, window, lines)?;
+                    let seq = plan::plan(&channel, window, lines, &class)?;
 
                     preliminary_break
                         .fetch_add(
@@ -117,12 +127,16 @@ fn main() -> Result<(), eyre::Report> {
         let image = image::DynamicImage::ImageRgb8(image).into_luma8();
 
         let tasks = plan.windows.iter().zip(&mut lines).zip(&mut sequences);
+        let class = plan::LineClass {
+            of: 1,
+            idx: 0,
+        };
 
         tasks
             .par_bridge()
             .into_par_iter()
             .try_for_each(|((window, lines), rgb)| {
-                let seq = plan::plan(&image, window, lines)?;
+                let seq = plan::plan(&image, window, lines, &class)?;
 
                 preliminary_break
                     .fetch_add(

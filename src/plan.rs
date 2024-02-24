@@ -11,6 +11,11 @@ use rand_xoshiro::{
 use crate::poly::Polygon;
 use crate::{eo_transfer, oe_transfer};
 
+pub struct LineClass {
+    pub of: usize,
+    pub idx: usize,
+}
+
 #[derive(Default)]
 pub struct Lines {
     pub idx_vec: Vec<PolygonPoint>,
@@ -55,6 +60,7 @@ pub fn plan(
     image: &GrayImage,
     poly: &Polygon,
     lines: &Lines,
+    class: &LineClass,
 ) -> Result<Sequence, eyre::Report> {
     let (w, h) = image.dimensions();
 
@@ -157,7 +163,9 @@ pub fn plan(
             &draw_points,
             current,
             threads,
+            lines,
             &done,
+            class,
             &mut xoshiro,
             &mut hit_count,
         );
@@ -229,7 +237,9 @@ fn best_fit(
     draw_points: &[Point<i32>],
     source: PolygonPoint,
     threads: &[PolygonPoint],
+    _: &Lines,
     done: &GrayImage,
+    class: &LineClass,
     rng: &mut Xoshiro128Plus,
     hit_count: &mut [u32],
 ) -> Option<usize> {
@@ -237,6 +247,8 @@ fn best_fit(
 
     let mut scores = Vec::with_capacity(threads.len());
     for (idx, &candidate) in threads.iter().enumerate() {
+        let discourage = ((source.0 + candidate.0) % class.of) != class.idx;
+
         let mut conjecture = done.clone();
         darken_by_thread(&mut conjecture, draw_points, source, candidate);
         let score = score_img_to_target(mask, target, &conjecture);
@@ -248,7 +260,11 @@ fn best_fit(
         let improve = pre_score - score;
         // u from [0; 1)
         let u = (rng.next_u32() as f32) / (2.0f32.powi(32));
-        let weight = u.powf(1.0 / u);
+        let weight = if discourage {
+            u.powf(4.0 / u)
+        } else {
+            u.powf(1.0 / u)
+        };
 
         scores.push((idx, improve, weight, candidate));
     }
